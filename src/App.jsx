@@ -95,15 +95,27 @@ export default function App() {
 
   useEffect(() => { if (!isFirstLoad.current) save(categories, debts, payLog, checks, purchases, settings) }, [categories, debts, payLog, checks, purchases, settings, save])
 
-  const latestPay      = payLog.length > 0 ? payLog[payLog.length - 1].amount : 0
-  const totalPayIn     = payLog.reduce((s, p) => s + p.amount, 0)
-  const totalBudgeted  = categories.flatMap(c => c.items).reduce((s, i) => s + i.amount, 0)
-  const totalPurchases = purchases.reduce((s, p) => s + p.amount, 0)
-  const checklistItems = categories.flatMap(cat => cat.items.map((item, idx) => ({ key: `${cat.id}__${idx}`, catLabel: cat.label, icon: cat.icon, color: cat.color, name: item.name, amount: item.amount })))
-  const checkedTotal   = checklistItems.filter(i => checks[i.key]).reduce((s, i) => s + i.amount, 0)
-  const remaining      = latestPay - checkedTotal - totalPurchases
-  const allChecked     = checklistItems.length > 0 && checklistItems.every(i => checks[i.key])
-  const checkProgress  = checklistItems.length > 0 ? (checklistItems.filter(i => checks[i.key]).length / checklistItems.length) * 100 : 0
+  // ── Monthly pay aggregation ──────────────────────────────────────────────
+  const now = new Date()
+  const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2,'0')}`
+  function getMonthKey(dateStr) {
+    // dateStr from en-AU like "3 May 2026"
+    try {
+      const d = new Date(dateStr); if (!isNaN(d)) return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`
+    } catch {}
+    return ''
+  }
+  const thisMonthPays   = payLog.filter(p => getMonthKey(p.date) === currentMonthKey)
+  const monthlyTotal    = thisMonthPays.reduce((s, p) => s + p.amount, 0)
+  const latestPay       = payLog.length > 0 ? payLog[payLog.length - 1].amount : 0
+  const totalPayIn      = payLog.reduce((s, p) => s + p.amount, 0)
+  const totalBudgeted   = categories.flatMap(c => c.items).reduce((s, i) => s + i.amount, 0)
+  const totalPurchases  = purchases.reduce((s, p) => s + p.amount, 0)
+  const checklistItems  = categories.flatMap(cat => cat.items.map((item, idx) => ({ key: `${cat.id}__${idx}`, catLabel: cat.label, icon: cat.icon, color: cat.color, name: item.name, amount: item.amount })))
+  const checkedTotal    = checklistItems.filter(i => checks[i.key]).reduce((s, i) => s + i.amount, 0)
+  const remaining       = monthlyTotal - checkedTotal - totalPurchases
+  const allChecked      = checklistItems.length > 0 && checklistItems.every(i => checks[i.key])
+  const checkProgress   = checklistItems.length > 0 ? (checklistItems.filter(i => checks[i.key]).length / checklistItems.length) * 100 : 0
   const activeDebts    = debts.filter(d => !d.paid)
   const paidDebts      = debts.filter(d => d.paid)
   const totalOwed      = activeDebts.reduce((s, d) => s + d.currentBalance, 0)
@@ -117,7 +129,7 @@ export default function App() {
     const amount = parseFloat(newPayAmount)
     if (isNaN(amount) || amount <= 0) return
     setPayLog(prev => [...prev, { id: Date.now(), amount: Math.round(amount * 100) / 100, date: new Date().toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' }), note: newPayNote.trim() }])
-    setNewPayAmount(''); setNewPayNote(''); setShowPayForm(false); setChecks({}); setPurchases([])
+    setNewPayAmount(''); setNewPayNote(''); setShowPayForm(false)
   }
   function deletePay(id) { setPayLog(prev => prev.filter(p => p.id !== id)) }
   function toggleCheck(key) { setChecks(prev => ({ ...prev, [key]: !prev[key] })) }
@@ -196,18 +208,19 @@ export default function App() {
             </div>
             <div style={{ textAlign: 'right' }}>
               <div style={{ fontSize: 10, color: syncColor, marginBottom: 2 }}>{syncLabel}</div>
-              <div style={{ fontSize: 11, color: '#7a8099', textTransform: 'uppercase' }}>Latest Pay</div>
-              <div style={{ fontSize: 24, color: '#6ab187', fontVariantNumeric: 'tabular-nums' }}>{fmt(latestPay)}</div>
+              <div style={{ fontSize: 11, color: '#7a8099', textTransform: 'uppercase' }}>This Month</div>
+              <div style={{ fontSize: 24, color: '#6ab187', fontVariantNumeric: 'tabular-nums' }}>{fmt(monthlyTotal)}</div>
+              <div style={{ fontSize: 10, color: '#7a8099' }}>{thisMonthPays.length} pay{thisMonthPays.length !== 1 ? 's' : ''} · latest {fmt(latestPay)}</div>
             </div>
           </div>
-          {latestPay > 0 && (
-            <div style={{ marginTop: 14 }}>
+          {monthlyTotal > 0 && (
+            <div style={{ marginTop: 14 }>}
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#7a8099', marginBottom: 5 }}>
                 <span>Used: <span style={{ color: '#e8e2d9' }}>{fmt(checkedTotal + totalPurchases)}</span></span>
                 <span>Remaining: <span style={{ color: remaining >= 0 ? '#6ab187' : '#c0656a', fontWeight: 'bold' }}>{fmt(Math.abs(remaining))}</span></span>
               </div>
               <div style={{ height: 6, background: '#2a2d3a', borderRadius: 3, overflow: 'hidden' }}>
-                <div style={{ height: '100%', borderRadius: 3, width: `${Math.min(100, ((checkedTotal + totalPurchases) / latestPay) * 100)}%`, background: remaining >= 0 ? 'linear-gradient(90deg, #6ab18788, #6ab187)' : 'linear-gradient(90deg, #c0656a88, #c0656a)', transition: 'width 0.4s' }} />
+                <div style={{ height: '100%', borderRadius: 3, width: `${Math.min(100, ((checkedTotal + totalPurchases) / monthlyTotal) * 100)}%`, background: remaining >= 0 ? 'linear-gradient(90deg, #6ab18788, #6ab187)' : 'linear-gradient(90deg, #c0656a88, #c0656a)', transition: 'width 0.4s' }} />
               </div>
             </div>
           )}
@@ -225,7 +238,7 @@ export default function App() {
             </div>
           )}
           <div style={{ display: 'flex', marginTop: 16, overflowX: 'auto' }}>
-            {[['home','💰 Pay'],['budget','📋 Budget'],['checklist','✅ Checklist'],['debts','💳 Debts'],['history','📅 History'],['settings','⚙️ Settings']].map(([id, label]) => (
+            {[['home','💰 Pay'],['budget','📋 Budget'],['checklist','✅ Checklist'],['debts','💳 Debts'],['history','📊 Reports'],['settings','⚙️ Settings']].map(([id, label]) => (
               <button key={id} onClick={() => setActiveTab(id)} style={{ background: 'none', border: 'none', whiteSpace: 'nowrap', borderBottom: activeTab === id ? '2px solid #e8e2d9' : '2px solid transparent', color: activeTab === id ? '#e8e2d9' : '#7a8099', fontSize: 12, padding: '10px 14px', cursor: 'pointer', fontFamily: 'inherit', transition: 'color 0.15s, border-color 0.15s' }}>{label}</button>
             ))}
           </div>
@@ -263,20 +276,29 @@ export default function App() {
               </div>
             </div>
           )}
-          {latestPay > 0 && (
-            <div style={{ background: '#161924', borderRadius: 14, border: '1px solid #2a2d3a', padding: '18px 20px' }}>
-              <div style={{ fontSize: 13, color: '#7a8099', marginBottom: 14 }}>Current pay period summary</div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: 10 }}>
-                {[{ label: 'Pay Received', val: latestPay, color: '#6ab187' }, { label: 'Budgeted', val: totalBudgeted, color: '#4ab8c4' }, { label: 'Allocated', val: checkedTotal, color: '#b07fc4' }, { label: 'Purchases', val: totalPurchases, color: '#e8a87c' }, { label: 'Remaining', val: remaining, color: remaining >= 0 ? '#6ab187' : '#c0656a' }].map(s => (
+          {monthlyTotal > 0 && (
+            <div style={{ background: '#161924', borderRadius: 14, border: '1px solid #2a2d3a', padding: '18px 20px', marginBottom: 16 }}>
+              <div style={{ fontSize: 13, color: '#7a8099', marginBottom: 14 }}>This month's summary</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: 10, marginBottom: 16 }}>
+                {[{ label: 'Total This Month', val: monthlyTotal, color: '#6ab187' }, { label: 'Budgeted', val: totalBudgeted, color: '#4ab8c4' }, { label: 'Allocated', val: checkedTotal, color: '#b07fc4' }, { label: 'Purchases', val: totalPurchases, color: '#e8a87c' }, { label: 'Remaining', val: remaining, color: remaining >= 0 ? '#6ab187' : '#c0656a' }].map(s => (
                   <div key={s.label} style={{ background: '#1a1d27', borderRadius: 10, padding: '10px 14px', border: `1px solid ${s.color}22` }}>
                     <div style={{ fontSize: 10, color: '#7a8099', marginBottom: 3 }}>{s.label}</div>
                     <div style={{ fontSize: 15, color: s.color, fontVariantNumeric: 'tabular-nums' }}>{fmt(s.val)}</div>
                   </div>
                 ))}
               </div>
+              <div style={{ fontSize: 12, color: '#7a8099', marginBottom: 8 }}>Pays this month ({thisMonthPays.length})</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {[...thisMonthPays].reverse().map((p, idx) => (
+                  <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#1a1d27', borderRadius: 8, padding: '8px 14px' }}>
+                    <div style={{ fontSize: 13, color: '#b0b8cc' }}>{p.date}{p.note ? ` · ${p.note}` : ''}</div>
+                    <div style={{ fontSize: 13, color: '#6ab187', fontVariantNumeric: 'tabular-nums' }}>{fmt(p.amount)}</div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
-          {latestPay === 0 && !showPayForm && (
+          {monthlyTotal === 0 && !showPayForm && (
             <div style={{ background: '#161924', borderRadius: 14, border: '1px dashed #2a2d3a', padding: '32px 20px', textAlign: 'center', color: '#7a8099' }}>
               <div style={{ fontSize: 28, marginBottom: 10 }}>💰</div>
               <div style={{ fontSize: 15, marginBottom: 6 }}>No pay logged yet</div>
@@ -291,9 +313,9 @@ export default function App() {
             <div style={{ fontSize: 11, color: '#7a8099', textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: 4 }}>Monthly Expenses</div>
             <div style={{ fontSize: 22, color: '#e8e2d9' }}>📋 Budget</div>
           </div>
-          {latestPay > 0 && (
-            <div style={{ background: totalBudgeted <= latestPay ? '#6ab18722' : '#c0656a22', border: `1px solid ${totalBudgeted <= latestPay ? '#6ab18766' : '#c0656a66'}`, borderRadius: 10, padding: '12px 18px', marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: 13, color: totalBudgeted <= latestPay ? '#6ab187' : '#c0656a' }}>{totalBudgeted <= latestPay ? `✅ Budget fits — ${fmt(latestPay - totalBudgeted)} left over` : `⚠️ Budget exceeds pay by ${fmt(totalBudgeted - latestPay)}`}</span>
+          {monthlyTotal > 0 && (
+            <div style={{ background: totalBudgeted <= monthlyTotal ? '#6ab18722' : '#c0656a22', border: `1px solid ${totalBudgeted <= monthlyTotal ? '#6ab18766' : '#c0656a66'}`, borderRadius: 10, padding: '12px 18px', marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: 13, color: totalBudgeted <= monthlyTotal ? '#6ab187' : '#c0656a' }}>{totalBudgeted <= monthlyTotal ? `✅ Budget fits this month — ${fmt(monthlyTotal - totalBudgeted)} left over` : `⚠️ Budget exceeds monthly income by ${fmt(totalBudgeted - monthlyTotal)}`}</span>
               <span style={{ fontSize: 14, color: '#e8e2d9', fontVariantNumeric: 'tabular-nums' }}>{fmt(totalBudgeted)}</span>
             </div>
           )}
@@ -359,11 +381,11 @@ export default function App() {
               <div style={{ fontSize: 22, color: '#e8e2d9' }}>✅ Checklist</div>
             </div>
             <div style={{ textAlign: 'right' }}>
-              <div style={{ fontSize: 11, color: '#7a8099', marginBottom: 2 }}>Remaining</div>
+              <div style={{ fontSize: 11, color: '#7a8099', marginBottom: 2 }}>Remaining This Month</div>
               <div style={{ fontSize: 22, color: remaining >= 0 ? '#6ab187' : '#c0656a', fontVariantNumeric: 'tabular-nums' }}>{fmt(remaining)}</div>
             </div>
           </div>
-          {latestPay === 0 ? (
+          {monthlyTotal === 0 ? (
             <div style={{ background: '#161924', borderRadius: 14, border: '1px dashed #2a2d3a', padding: '32px 20px', textAlign: 'center', color: '#7a8099' }}>
               <div style={{ fontSize: 24, marginBottom: 10 }}>💰</div>
               <div>Log a pay first to start ticking off!</div>
@@ -433,13 +455,13 @@ export default function App() {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
                   <div>
                     <div style={{ fontSize: 11, color: '#7a8099', textTransform: 'uppercase', marginBottom: 3 }}>{remaining >= 0 ? '💰 Remaining this pay' : '⚠️ Over this pay'}</div>
-                    <div style={{ fontSize: 12, color: '#7a8099' }}>{fmt(latestPay)} − {fmt(checkedTotal)} − {fmt(totalPurchases)}</div>
+                    <div style={{ fontSize: 12, color: '#7a8099' }}>{fmt(monthlyTotal)} income − {fmt(checkedTotal)} allocated − {fmt(totalPurchases)} purchases</div>
                   </div>
                   <div style={{ fontSize: 24, color: remaining >= 0 ? '#6ab187' : '#c0656a', fontVariantNumeric: 'tabular-nums', fontWeight: 'bold' }}>{fmt(Math.abs(remaining))}</div>
                 </div>
               </div>
               <div style={{ marginTop: 16, textAlign: 'center' }}>
-                <button onClick={() => { setChecks({}); setPurchases([]) }} style={{ background: 'none', border: '1px solid #2a2d3a', borderRadius: 8, color: '#7a8099', fontSize: 12, padding: '8px 20px', cursor: 'pointer', fontFamily: 'inherit', transition: 'border-color 0.15s, color 0.15s' }} onMouseEnter={e => { e.currentTarget.style.borderColor = '#4a5070'; e.currentTarget.style.color = '#b0b8cc' }} onMouseLeave={e => { e.currentTarget.style.borderColor = '#2a2d3a'; e.currentTarget.style.color = '#7a8099' }}>↺ Reset checklist & purchases</button>
+                <button onClick={() => { setChecks({}); setPurchases([]) }} style={{ background: 'none', border: '1px solid #2a2d3a', borderRadius: 8, color: '#7a8099', fontSize: 12, padding: '8px 20px', cursor: 'pointer', fontFamily: 'inherit', transition: 'border-color 0.15s, color 0.15s' }} onMouseEnter={e => { e.currentTarget.style.borderColor = '#4a5070'; e.currentTarget.style.color = '#b0b8cc' }} onMouseLeave={e => { e.currentTarget.style.borderColor = '#2a2d3a'; e.currentTarget.style.color = '#7a8099' }}>↺ Reset monthly checklist & purchases</button>
               </div>
             </>
           )}
@@ -495,10 +517,45 @@ export default function App() {
 
         {/* HISTORY TAB */}
         <div style={{ display: activeTab === 'history' ? 'block' : 'none' }}>
-          <div style={{ marginBottom: 20 }}><div style={{ fontSize: 11, color: '#7a8099', textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: 4 }}>Income Log</div><div style={{ fontSize: 22, color: '#e8e2d9' }}>📅 Pay History</div></div>
+          <div style={{ marginBottom: 20 }}><div style={{ fontSize: 11, color: '#7a8099', textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: 4 }}>Overview & History</div><div style={{ fontSize: 22, color: '#e8e2d9' }}>📊 Reports</div></div>
+          {/* Summary cards */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 10, marginBottom: 24 }}>
-            {[{ label: 'Total Earned', val: totalPayIn, color: '#6ab187' }, { label: 'Pays Logged', val: payLog.length, color: '#4ab8c4', isCnt: true }, { label: 'Average Pay', val: payLog.length > 0 ? totalPayIn / payLog.length : 0, color: '#b07fc4' }, { label: 'Total Debt', val: totalOwed, color: '#c0656a' }].map(s => (<div key={s.label} style={{ background: '#161924', border: `1px solid ${s.color}33`, borderRadius: 12, padding: '12px 16px' }}><div style={{ fontSize: 10, color: '#7a8099', marginBottom: 4 }}>{s.label}</div><div style={{ fontSize: 18, color: s.color, fontVariantNumeric: 'tabular-nums', fontWeight: 'bold' }}>{s.isCnt ? s.val : fmt(s.val)}</div></div>))}
+            {[{ label: 'This Month', val: monthlyTotal, color: '#6ab187' }, { label: 'Total Earned', val: totalPayIn, color: '#4ab8c4' }, { label: 'Avg Pay', val: payLog.length > 0 ? totalPayIn / payLog.length : 0, color: '#b07fc4' }, { label: 'Total Debt', val: totalOwed, color: '#c0656a' }, { label: 'Pays This Month', val: thisMonthPays.length, color: '#d4a843', isCnt: true }, { label: 'Debt Cleared', val: totalOriginal - totalOwed, color: '#6ab187' }].map(s => (<div key={s.label} style={{ background: '#161924', border: `1px solid ${s.color}33`, borderRadius: 12, padding: '12px 16px' }}><div style={{ fontSize: 10, color: '#7a8099', marginBottom: 4 }}>{s.label}</div><div style={{ fontSize: 18, color: s.color, fontVariantNumeric: 'tabular-nums', fontWeight: 'bold' }}>{s.isCnt ? s.val : fmt(s.val)}</div></div>))}
           </div>
+
+          {/* Debt progress */}
+          {debts.length > 0 && (
+            <div style={{ background: '#161924', borderRadius: 14, border: '1px solid #c0656a33', padding: '18px 20px', marginBottom: 24 }}>
+              <div style={{ fontSize: 13, color: '#c0656a', marginBottom: 16 }}>💳 Debt Paydown Progress</div>
+              {totalOriginal > 0 && (
+                <div style={{ marginBottom: 16, paddingBottom: 16, borderBottom: '1px solid #2a2d3a' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#7a8099', marginBottom: 6 }}>
+                    <span>Overall — <span style={{ color: '#e8e2d9' }}>{overallDebtProg.toFixed(1)}% paid off</span></span>
+                    <span>{fmt(totalOriginal - totalOwed)} of {fmt(totalOriginal)} cleared</span>
+                  </div>
+                  <div style={{ height: 10, background: '#2a2d3a', borderRadius: 5, overflow: 'hidden' }}>
+                    <div style={{ height: '100%', borderRadius: 5, width: `${overallDebtProg}%`, background: 'linear-gradient(90deg, #c0656a88, #e07b54)', transition: 'width 0.5s' }} />
+                  </div>
+                </div>
+              )}
+              {debts.map(debt => {
+                const progress = debt.originalBalance > 0 ? ((debt.originalBalance - debt.currentBalance) / debt.originalBalance) * 100 : 100
+                const pC = progress >= 75 ? '#6ab187' : progress >= 40 ? '#d4a843' : '#c0656a'
+                return (
+                  <div key={debt.id} style={{ marginBottom: 14 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 5 }}>
+                      <span style={{ color: debt.paid ? '#6ab187' : '#e8e2d9' }}>{debt.paid ? '✅ ' : ''}{debt.name}</span>
+                      <span style={{ color: '#7a8099', fontVariantNumeric: 'tabular-nums', fontSize: 12 }}>{fmt(debt.currentBalance)} left of {fmt(debt.originalBalance)}</span>
+                    </div>
+                    <div style={{ height: 8, background: '#2a2d3a', borderRadius: 4, overflow: 'hidden' }}>
+                      <div style={{ height: '100%', borderRadius: 4, width: `${progress}%`, background: `linear-gradient(90deg, ${pC}88, ${pC})`, transition: 'width 0.5s' }} />
+                    </div>
+                    <div style={{ fontSize: 11, color: pC, marginTop: 3 }}>{progress.toFixed(1)}% paid off — {fmt(debt.originalBalance - debt.currentBalance)} cleared</div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
           {payLog.length === 0 ? (<div style={{ background: '#161924', borderRadius: 14, border: '1px dashed #2a2d3a', padding: '32px 20px', textAlign: 'center', color: '#7a8099' }}><div style={{ fontSize: 24, marginBottom: 10 }}>📅</div><div>No pays logged yet!</div></div>)
             : (<div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>{[...payLog].reverse().map((p, idx) => (<div key={p.id} style={{ background: '#161924', border: '1px solid #2a2d3a', borderRadius: 12, padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}><div><div style={{ fontSize: 15, color: '#e8e2d9', fontVariantNumeric: 'tabular-nums' }}>{fmt(p.amount)}</div><div style={{ fontSize: 11, color: '#7a8099', marginTop: 2 }}>{p.date}{p.note ? ` · ${p.note}` : ''}</div></div><div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>{idx === 0 && <span style={{ fontSize: 11, background: '#6ab18722', border: '1px solid #6ab18744', borderRadius: 6, padding: '2px 8px', color: '#6ab187' }}>Latest</span>}<button onClick={() => deletePay(p.id)} style={{ background: 'none', border: 'none', color: '#c0656a44', fontSize: 13, cursor: 'pointer', padding: '2px 6px', transition: 'color 0.15s' }} onMouseEnter={e => e.currentTarget.style.color = '#c0656a'} onMouseLeave={e => e.currentTarget.style.color = '#c0656a44'}>✕</button></div></div>))}</div>)}
         </div>
@@ -519,14 +576,14 @@ export default function App() {
                 </div>
                 <div style={{ background: '#161924', borderRadius: 14, border: '1px solid #d4a84333', padding: '22px 24px' }}>
                   <div style={{ fontSize: 14, color: '#d4a843', marginBottom: 6 }}>📌 Header Cards</div>
-                  <div style={{ fontSize: 12, color: '#7a8099', marginBottom: 14 }}>Choose which categories show at the top (max 4).</div>
+                  <div style={{ fontSize: 12, color: '#7a8099', marginBottom: 14 }}>Choose up to 4 categories to show at the top.</div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                     {categories.map(cat => {
                       const pinned = (draft.pinnedCats || []).includes(cat.id)
                       const atMax = (draft.pinnedCats || []).length >= 4
                       return (
-                        <div key={cat.id} onClick={() => { if (!settingsDraft) setSettingsDraft({ ...settings }); setSettingsDraft(d => { const curr = d?.pinnedCats || settings.pinnedCats || []; const next = pinned ? curr.filter(id => id !== cat.id) : atMax ? curr : [...curr, cat.id]; return { ...(d || settings), pinnedCats: next } }) }}
-                          style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', borderRadius: 10, cursor: 'pointer', background: pinned ? `${cat.color}15` : '#1a1d27', border: pinned ? `1px solid ${cat.color}55` : '1px solid #2a2d3a', transition: 'all 0.15s', opacity: (!pinned && atMax) ? 0.4 : 1 }}>
+                        <div key={cat.id} onClick={() => { if (!settingsDraft) setSettingsDraft({ ...settings }); setSettingsDraft(d => { const base = { ...(d || settings) }; const curr = base.pinnedCats || []; const next = pinned ? curr.filter(id => id !== cat.id) : curr.length >= 4 ? curr : [...curr, cat.id]; return { ...base, pinnedCats: next } }) }}
+                          style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', borderRadius: 10, cursor: 'pointer', background: pinned ? `${cat.color}15` : '#1a1d27', border: pinned ? `1px solid ${cat.color}55` : '1px solid #2a2d3a', transition: 'all 0.15s', opacity: (!pinned && (draft.pinnedCats || []).length >= 4) ? 0.4 : 1 }}>
                           <div style={{ width: 20, height: 20, borderRadius: 6, flexShrink: 0, border: pinned ? `2px solid ${cat.color}` : '2px solid #3a4060', background: pinned ? cat.color : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.15s' }}>{pinned && <span style={{ color: '#0f1117', fontSize: 12, fontWeight: 'bold' }}>✓</span>}</div>
                           <span>{cat.icon}</span>
                           <div style={{ flex: 1, fontSize: 13, color: pinned ? cat.color : '#b0b8cc' }}>{cat.label}</div>
